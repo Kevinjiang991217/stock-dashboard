@@ -325,6 +325,70 @@ app.get('/api/exchange-rate', (req, res) => {
   res.json({ rate: exchangeRate, timestamp: Date.now() });
 });
 
+// History data for K-line chart
+app.get('/api/history/:symbol', async (req, res) => {
+  const symbol = req.params.symbol;
+
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=3mo`;
+    const response = await axios.get(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+      },
+      timeout: 15000
+    });
+
+    const data = response.data;
+    if (data.chart && data.chart.result && data.chart.result[0]) {
+      const result = data.chart.result[0];
+      const quote = result.indicators.quote[0];
+      const timestamps = result.timestamp;
+
+      const candles = timestamps.map((t, i) => ({
+        time: t,
+        open: quote.open[i],
+        high: quote.high[i],
+        low: quote.low[i],
+        close: quote.close[i]
+      })).filter(c => c.open !== null && c.high !== null && c.low !== null && c.close !== null);
+
+      res.json({ candles });
+    } else {
+      // Return mock data
+      res.json({ candles: generateMockCandles() });
+    }
+  } catch (error) {
+    console.error('Error fetching history:', error.message);
+    // Return mock data on error
+    res.json({ candles: generateMockCandles() });
+  }
+});
+
+// Generate mock candles for demo
+function generateMockCandles() {
+  const candles = [];
+  const basePrice = 5000;
+  const now = Math.floor(Date.now() / 1000);
+
+  for (let i = 90; i >= 0; i--) {
+    const open = basePrice + (Math.random() - 0.5) * 200 + (90 - i) * 5;
+    const change = (Math.random() - 0.5) * 50;
+    const close = open + change;
+    const high = Math.max(open, close) + Math.random() * 30;
+    const low = Math.min(open, close) - Math.random() * 30;
+
+    candles.push({
+      time: now - i * 86400,
+      open,
+      high,
+      low,
+      close
+    });
+  }
+
+  return candles;
+}
+
 app.get('/api/all', async (req, res) => {
   try {
     const [stocks, gold, news] = await Promise.all([

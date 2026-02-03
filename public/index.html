@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>全球股市监控 Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
   <style>
     * {
       margin: 0;
@@ -367,6 +369,57 @@
       cursor: not-allowed;
     }
 
+    /* Chart Styles */
+    .chart-container {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 16px;
+      padding: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .chart-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+    }
+
+    .chart-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: rgba(255, 255, 255, 0.9);
+    }
+
+    .chart-tabs {
+      display: flex;
+      gap: 8px;
+    }
+
+    .chart-tab {
+      background: rgba(255, 255, 255, 0.1);
+      border: none;
+      padding: 6px 12px;
+      border-radius: 6px;
+      color: rgba(255, 255, 255, 0.7);
+      cursor: pointer;
+      font-size: 12px;
+      transition: all 0.3s ease;
+    }
+
+    .chart-tab.active {
+      background: rgba(79, 172, 254, 0.3);
+      color: #4facfe;
+    }
+
+    .chart-tab:hover:not(.active) {
+      background: rgba(255, 255, 255, 0.15);
+    }
+
+    .chart-wrapper {
+      height: 300px;
+      position: relative;
+    }
+
     /* Responsive */
     @media (max-width: 768px) {
       .container {
@@ -445,11 +498,30 @@
 
     <!-- Gold Section -->
     <section class="section">
-      <h2 class="section-title">黄金价格</h2>
+      <h2 class="section-title">黄金价格 (每公斤)</h2>
       <div class="grid gold-grid" id="goldPrices">
         <div class="loading">
           <div class="spinner"></div>
           加载中...
+        </div>
+      </div>
+    </section>
+
+    <!-- K-Line Chart Section -->
+    <section class="section">
+      <h2 class="section-title">K线走势图</h2>
+      <div class="chart-container">
+        <div class="chart-header">
+          <span class="chart-title" id="chartTitle">标普500 (S&P 500)</span>
+          <div class="chart-tabs">
+            <button class="chart-tab active" onclick="switchChart('sp500')" data-symbol="sp500">标普500</button>
+            <button class="chart-tab" onclick="switchChart('nasdaq')" data-symbol="nasdaq">纳斯达克</button>
+            <button class="chart-tab" onclick="switchChart('gold')" data-symbol="gold">黄金</button>
+            <button class="chart-tab" onclick="switchChart('shanghai')" data-symbol="shanghai">上证指数</button>
+          </div>
+        </div>
+        <div class="chart-wrapper">
+          <canvas id="klineChart"></canvas>
         </div>
       </div>
     </section>
@@ -490,10 +562,24 @@
     let autoRefreshInterval;
     let currentCurrency = 'original';
     let exchangeRates = {
-      USD_CNY: 7.2,  // 默认汇率，会实时更新
+      USD_CNY: 7.2,
       CNY_USD: 0.14
     };
     let cachedData = null;
+    let klineChart = null;
+    let currentChartSymbol = 'sp500';
+    let chartDataCache = {};
+
+    // 黄金转换：1盎司 = 31.1035克，1公斤 = 1000克
+    const OZ_TO_KG = 31.1035;
+
+    // Chart配置
+    const chartConfig = {
+      sp500: { symbol: '^GSPC', title: '标普500 (S&P 500)', color: '#4facfe' },
+      nasdaq: { symbol: '^IXIC', title: '纳斯达克 (NASDAQ)', color: '#00f2c3' },
+      gold: { symbol: 'GC=F', title: '黄金期货 (每公斤)', color: '#ffd700' },
+      shanghai: { symbol: '000001.SS', title: '上证指数', color: '#ff6b6b' }
+    };
 
     // 汇率符号映射
     const currencySymbols = {
@@ -698,9 +784,13 @@
       const changeClass = item.changePercent >= 0 ? 'positive' : 'negative';
       const changeIcon = item.changePercent >= 0 ? '▲' : '▼';
 
-      // 转换价格
-      const priceObj = convertCurrency(item.price, item.currency || 'USD', currentCurrency);
-      const changeObj = convertCurrency(item.change, item.currency || 'USD', currentCurrency);
+      // 转换为每公斤 (1盎司 = 31.1035克)
+      const pricePerKg = item.price * OZ_TO_KG;
+      const changePerKg = item.change * OZ_TO_KG;
+
+      // 转换
+      const priceObj = convertCurrency(pricePerKg, item.currency || 'USD', currentCurrency);
+      const changeObj = convertCurrency(changePerKg, item.currency || 'USD', currentCurrency);
       const displayCurrency = currentCurrency === 'original' ? (item.currency || 'USD') : currentCurrency;
 
       return `
@@ -708,7 +798,7 @@
           <div class="card-header">
             <div>
               <div class="card-title">${item.name}</div>
-              <div class="card-subtitle">${market}</div>
+              <div class="card-subtitle">${market} (每公斤)</div>
             </div>
             <span class="change ${changeClass}">
               ${changeIcon} ${Math.abs(item.changePercent).toFixed(2)}%
@@ -721,6 +811,110 @@
         </div>
       `;
     }
+
+    // Chart functions
+    async function fetchChartData(symbol) {
+      try {
+        const response = await fetch(`/api/history/${symbol}`);
+        const data = await response.json();
+        return data;
+      } catch (error) {
+        console.error('Error fetching chart data:', error);
+        return null;
+      }
+    }
+
+    function initChart() {
+      const ctx = document.getElementById('klineChart').getContext('2d');
+      klineChart = new Chart(ctx, {
+        type: 'candlestick',
+        data: {
+          datasets: [{
+            label: '价格',
+            data: [],
+            borderColor: '#4facfe',
+            backgroundColor: {
+              up: 'rgba(46, 213, 115, 0.5)',
+              down: 'rgba(255, 71, 87, 0.5)',
+              unchanged: 'rgba(255, 255, 255, 0.3)'
+            },
+            borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: {
+              type: 'time',
+              time: {
+                unit: 'day'
+              },
+              grid: {
+                color: 'rgba(255, 255, 255, 0.1)'
+              },
+              ticks: {
+                color: 'rgba(255, 255, 255, 0.7)'
+              }
+            },
+            y: {
+              grid: {
+                color: 'rgba(255, 255, 255, 0.1)'
+              },
+              ticks: {
+                color: 'rgba(255, 255, 255, 0.7)'
+              }
+            }
+          },
+          plugins: {
+            legend: {
+              display: false
+            },
+            tooltip: {
+              mode: 'index',
+              intersect: false,
+              backgroundColor: 'rgba(0, 0, 0, 0.8)',
+              titleColor: '#fff',
+              bodyColor: '#fff',
+              borderColor: 'rgba(255, 255, 255, 0.2)',
+              borderWidth: 1
+            }
+          }
+        }
+      });
+    }
+
+    async function loadChart(symbol) {
+      currentChartSymbol = symbol;
+      const config = chartConfig[symbol];
+      document.getElementById('chartTitle').textContent = config.title;
+
+      // Update active tab
+      document.querySelectorAll('.chart-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.symbol === symbol);
+      });
+
+      const data = await fetchChartData(config.symbol);
+      if (data && data.candles) {
+        const candles = data.candles.map(c => ({
+          x: new Date(c.time * 1000),
+          o: c.open,
+          h: c.high,
+          l: c.low,
+          c: c.close
+        }));
+
+        klineChart.data.datasets[0].data = candles;
+        klineChart.data.datasets[0].borderColor = config.color;
+        klineChart.update();
+      }
+    }
+
+    function switchChart(symbol) {
+      loadChart(symbol);
+    }
+
+    // Fetch history data endpoint is handled by server
 
     function updateNews(news) {
       const container = document.getElementById('newsList');
@@ -796,6 +990,11 @@
     fetchExchangeRates();
     fetchData();
     fetchAnalysis();
+
+    // Initialize chart
+    initChart();
+    loadChart('sp500');
+
     startAutoRefresh();
   </script>
 </body>
