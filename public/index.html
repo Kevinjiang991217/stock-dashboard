@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>全球股市监控 Dashboard</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      min-height: 100vh;
+      color: #fff;
+    }
+
+    .header {
+      background: rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(10px);
+      padding: 20px 40px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .header h1 {
+      font-size: 24px;
+      font-weight: 600;
+    }
+
+    .last-update {
+      font-size: 14px;
+      color: rgba(255, 255, 255, 0.7);
+    }
+
+    .refresh-btn {
+      background: rgba(79, 172, 254, 0.8);
+      border: none;
+      padding: 10px 20px;
+      border-radius: 8px;
+      color: white;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.3s ease;
+    }
+
+    .refresh-btn:hover {
+      background: rgba(79, 172, 254, 1);
+      transform: translateY(-2px);
+    }
+
+    .currency-selector {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-left: 20px;
+    }
+
+    .currency-selector label {
+      font-size: 14px;
+      color: rgba(255, 255, 255, 0.8);
+    }
+
+    .currency-selector select {
+      background: rgba(255, 255, 255, 0.15);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 8px;
+      padding: 8px 12px;
+      color: white;
+      font-size: 14px;
+      cursor: pointer;
+      outline: none;
+    }
+
+    .currency-selector select option {
+      background: #1a1a2e;
+      color: white;
+    }
+
+    .container {
+      max-width: 1600px;
+      margin: 0 auto;
+      padding: 30px;
+    }
+
+    .section-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 20px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .section {
+      margin-bottom: 40px;
+    }
+
+    .grid {
+      display: grid;
+      gap: 20px;
+    }
+
+    .stock-grid {
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    }
+
+    .gold-grid {
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    }
+
+    .card {
+      background: rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(10px);
+      border-radius: 16px;
+      padding: 24px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      transition: all 0.3s ease;
+    }
+
+    .card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: rgba(255, 255, 255, 0.9);
+    }
+
+    .card-subtitle {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.5);
+    }
+
+    .price {
+      font-size: 32px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .change {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .change.positive {
+      background: rgba(46, 213, 115, 0.2);
+      color: #2ed573;
+    }
+
+    .change.negative {
+      background: rgba(255, 71, 87, 0.2);
+      color: #ff4757;
+    }
+
+    .change.neutral {
+      background: rgba(255, 255, 255, 0.1);
+      color: rgba(255, 255, 255, 0.7);
+    }
+
+    .card-details {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      font-size: 12px;
+    }
+
+    .detail-item {
+      text-align: center;
+    }
+
+    .detail-label {
+      color: rgba(255, 255, 255, 0.5);
+      margin-bottom: 4px;
+    }
+
+    .detail-value {
+      color: rgba(255, 255, 255, 0.9);
+      font-weight: 500;
+    }
+
+    /* News Section */
+    .news-grid {
+      grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    }
+
+    .news-card {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 12px;
+      padding: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      transition: all 0.3s ease;
+    }
+
+    .news-card:hover {
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .news-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .news-source {
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 12px;
+      background: rgba(79, 172, 254, 0.2);
+      color: #4facfe;
+    }
+
+    .news-source.chinese {
+      background: rgba(255, 107, 107, 0.2);
+      color: #ff6b6b;
+    }
+
+    .news-date {
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.4);
+    }
+
+    .news-title {
+      font-size: 15px;
+      line-height: 1.5;
+      color: rgba(255, 255, 255, 0.9);
+      text-decoration: none;
+      display: block;
+      transition: color 0.3s ease;
+    }
+
+    .news-title:hover {
+      color: #4facfe;
+    }
+
+    /* Loading state */
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: rgba(255, 255, 255, 0.5);
+    }
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid rgba(255, 255, 255, 0.1);
+      border-top-color: #4facfe;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 20px;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Stats row */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 15px;
+      margin-bottom: 30px;
+    }
+
+    .stat-card {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 12px;
+      padding: 20px;
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 28px;
+      font-weight: 700;
+      margin-bottom: 5px;
+    }
+
+    .stat-label {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.5);
+    }
+
+    .stat-up {
+      color: #2ed573;
+    }
+
+    .stat-down {
+      color: #ff4757;
+    }
+
+    /* AI Analysis Section */
+    .analysis-card {
+      background: linear-gradient(135deg, rgba(79, 172, 254, 0.15) 0%, rgba(0, 242, 195, 0.15) 100%);
+      border: 1px solid rgba(79, 172, 254, 0.3);
+      border-radius: 16px;
+      padding: 24px;
+    }
+
+    .analysis-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .analysis-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #4facfe;
+    }
+
+    .ai-badge {
+      background: linear-gradient(135deg, #4facfe 0%, #00f2c3 100%);
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .analysis-content {
+      line-height: 1.8;
+      font-size: 15px;
+      color: rgba(255, 255, 255, 0.9);
+      white-space: pre-wrap;
+    }
+
+    .generate-btn {
+      background: linear-gradient(135deg, #4facfe 0%, #00f2c3 100%);
+      border: none;
+      padding: 8px 16px;
+      border-radius: 8px;
+      color: white;
+      cursor: pointer;
+      font-size: 13px;
+      transition: all 0.3s ease;
+    }
+
+    .generate-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 15px rgba(79, 172, 254, 0.4);
+    }
+
+    .generate-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .container {
+        padding: 15px;
+      }
+
+      .news-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .price {
+        font-size: 24px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <h1>全球股市监控 Dashboard</h1>
+    <div style="display: flex; align-items: center;">
+      <span class="last-update" id="lastUpdate">更新于: --</span>
+      <div class="currency-selector">
+        <label for="currency">货币:</label>
+        <select id="currency" onchange="updateCurrency()">
+          <option value="original">原始货币</option>
+          <option value="CNY">人民币 (CNY)</option>
+          <option value="USD">美元 (USD)</option>
+        </select>
+      </div>
+      <button class="refresh-btn" onclick="refreshAll()" style="margin-left: 15px;">刷新数据</button>
+    </div>
+  </header>
+
+  <div class="container">
+    <!-- Stats Summary -->
+    <div class="stats-row" id="statsRow">
+      <div class="stat-card">
+        <div class="stat-value" id="chinaUp">0</div>
+        <div class="stat-label">中国股市上涨</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="chinaDown">0</div>
+        <div class="stat-label">中国股市下跌</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="usaUp">0</div>
+        <div class="stat-label">美国股市上涨</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="usaDown">0</div>
+        <div class="stat-label">美国股市下跌</div>
+      </div>
+    </div>
+
+    <!-- China Stock Section -->
+    <section class="section">
+      <h2 class="section-title">中国股市</h2>
+      <div class="grid stock-grid" id="chinaStocks">
+        <div class="loading">
+          <div class="spinner"></div>
+          加载中...
+        </div>
+      </div>
+    </section>
+
+    <!-- US Stock Section -->
+    <section class="section">
+      <h2 class="section-title">美国股市</h2>
+      <div class="grid stock-grid" id="usaStocks">
+        <div class="loading">
+          <div class="spinner"></div>
+          加载中...
+        </div>
+      </div>
+    </section>
+
+    <!-- Gold Section -->
+    <section class="section">
+      <h2 class="section-title">黄金价格</h2>
+      <div class="grid gold-grid" id="goldPrices">
+        <div class="loading">
+          <div class="spinner"></div>
+          加载中...
+        </div>
+      </div>
+    </section>
+
+    <!-- AI Analysis Section -->
+    <section class="section">
+      <h2 class="section-title">AI 市场分析简报</h2>
+      <div class="analysis-card">
+        <div class="analysis-header">
+          <div>
+            <span class="analysis-title">市场走势分析</span>
+            <span class="ai-badge">AI 生成</span>
+          </div>
+          <button class="generate-btn" id="generateBtn" onclick="generateAnalysis()">重新生成分析</button>
+        </div>
+        <div class="analysis-content" id="analysisContent">
+          <div class="loading">
+            <div class="spinner"></div>
+            AI 分析生成中...
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- News Section -->
+    <section class="section">
+      <h2 class="section-title">市场资讯</h2>
+      <div class="grid news-grid" id="newsList">
+        <div class="loading">
+          <div class="spinner"></div>
+          加载中...
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    let autoRefreshInterval;
+    let currentCurrency = 'original';
+    let exchangeRates = {
+      USD_CNY: 7.2,  // 默认汇率，会实时更新
+      CNY_USD: 0.14
+    };
+    let cachedData = null;
+
+    // 汇率符号映射
+    const currencySymbols = {
+      'USD': '$',
+      'CNY': '¥',
+      'original': ''
+    };
+
+    // 货币名称映射
+    const currencyNames = {
+      'USD': '美元',
+      'CNY': '人民币'
+    };
+
+    // 获取汇率
+    async function fetchExchangeRates() {
+      try {
+        const response = await fetch('https://api.exchangerate-api.com/v4/latest/USD');
+        const data = await response.json();
+        if (data && data.rates) {
+          exchangeRates.USD_CNY = data.rates.CNY || 7.2;
+          exchangeRates.CNY_USD = 1 / exchangeRates.USD_CNY;
+        }
+      } catch (error) {
+        console.log('汇率获取失败，使用默认汇率');
+      }
+    }
+
+    // 货币转换
+    function convertCurrency(amount, fromCurrency, toCurrency) {
+      if (toCurrency === 'original' || fromCurrency === toCurrency) {
+        return { amount: amount, currency: fromCurrency };
+      }
+
+      if (fromCurrency === 'USD' && toCurrency === 'CNY') {
+        return { amount: amount * exchangeRates.USD_CNY, currency: 'CNY' };
+      }
+
+      if (fromCurrency === 'CNY' && toCurrency === 'USD') {
+        return { amount: amount * exchangeRates.CNY_USD, currency: 'USD' };
+      }
+
+      return { amount: amount, currency: fromCurrency };
+    }
+
+    // 格式化货币
+    function formatCurrency(amount, currency) {
+      const symbol = currencySymbols[currency] || '';
+      const options = {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      };
+      return symbol + amount.toLocaleString('zh-CN', options);
+    }
+
+    // 更新货币
+    function updateCurrency() {
+      currentCurrency = document.getElementById('currency').value;
+      if (cachedData) {
+        updateDashboard(cachedData);
+      }
+    }
+
+    async function fetchData() {
+      try {
+        const response = await fetch('/api/all');
+        const data = await response.json();
+        cachedData = data;
+        updateDashboard(data);
+      } catch (error) {
+        console.error('Error fetching data:', error);
+      }
+    }
+
+    async function fetchAnalysis() {
+      try {
+        const response = await fetch('/api/analysis');
+        const data = await response.json();
+        document.getElementById('analysisContent').textContent = data.analysis || '暂无分析';
+      } catch (error) {
+        console.error('Error fetching analysis:', error);
+        document.getElementById('analysisContent').textContent = '分析加载失败，请稍后再试';
+      }
+    }
+
+    async function generateAnalysis() {
+      const btn = document.getElementById('generateBtn');
+      btn.disabled = true;
+      btn.textContent = '生成中...';
+
+      try {
+        document.getElementById('analysisContent').innerHTML = '<div class="loading"><div class="spinner"></div>AI 分析生成中...</div>';
+
+        const response = await fetch('/api/generate-analysis', { method: 'POST' });
+        const data = await response.json();
+        document.getElementById('analysisContent').textContent = data.analysis || '分析生成失败';
+      } catch (error) {
+        console.error('Error generating analysis:', error);
+        document.getElementById('analysisContent').textContent = '分析生成失败，请稍后再试';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '重新生成分析';
+      }
+    }
+
+    function updateDashboard(data) {
+      updateLastUpdate();
+      updateStocks(data.stocks);
+      updateGold(data.gold);
+      updateNews(data.news);
+      updateStats(data.stocks);
+    }
+
+    function updateLastUpdate() {
+      const now = new Date();
+      document.getElementById('lastUpdate').textContent =
+        `更新于: ${now.toLocaleTimeString('zh-CN')}`;
+    }
+
+    function updateStocks(stocks) {
+      // China Stocks
+      const chinaContainer = document.getElementById('chinaStocks');
+      if (stocks && stocks.china) {
+        chinaContainer.innerHTML = Object.values(stocks.china).map(stock =>
+          createStockCard(stock)
+        ).join('');
+      }
+
+      // US Stocks
+      const usaContainer = document.getElementById('usaStocks');
+      if (stocks && stocks.usa) {
+        usaContainer.innerHTML = Object.values(stocks.usa).map(stock =>
+          createStockCard(stock)
+        ).join('');
+      }
+    }
+
+    function createStockCard(stock) {
+      const changeClass = stock.changePercent >= 0 ? 'positive' : 'negative';
+      const changeIcon = stock.changePercent >= 0 ? '▲' : '▼';
+
+      // 转换价格
+      const priceObj = convertCurrency(stock.price, stock.currency || 'USD', currentCurrency);
+      const changeObj = convertCurrency(stock.change, stock.currency || 'USD', currentCurrency);
+      const openObj = convertCurrency(stock.open || 0, stock.currency || 'USD', currentCurrency);
+      const highObj = convertCurrency(stock.high || 0, stock.currency || 'USD', currentCurrency);
+      const lowObj = convertCurrency(stock.low || 0, stock.currency || 'USD', currentCurrency);
+
+      const displayCurrency = currentCurrency === 'original' ? (stock.currency || 'USD') : currentCurrency;
+
+      return `
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">${stock.name}</div>
+              <div class="card-subtitle">${stock.symbol}</div>
+            </div>
+            <span class="change ${changeClass}">
+              ${changeIcon} ${Math.abs(stock.changePercent).toFixed(2)}%
+            </span>
+          </div>
+          <div class="price">${formatCurrency(priceObj.amount, displayCurrency)}</div>
+          <div class="change ${changeClass}">
+            ${changeIcon} ${changeObj.amount >= 0 ? '+' : ''}${changeObj.amount.toFixed(2)} ${currencySymbols[displayCurrency]}
+          </div>
+          <div class="card-details">
+            <div class="detail-item">
+              <div class="detail-label">开盘</div>
+              <div class="detail-value">${stock.open ? formatCurrency(openObj.amount, displayCurrency) : '-'}</div>
+            </div>
+            <div class="detail-item">
+              <div class="detail-label">最高</div>
+              <div class="detail-value">${stock.high ? formatCurrency(highObj.amount, displayCurrency) : '-'}</div>
+            </div>
+            <div class="detail-item">
+              <div class="detail-label">最低</div>
+              <div class="detail-value">${stock.low ? formatCurrency(lowObj.amount, displayCurrency) : '-'}</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function updateGold(gold) {
+      const container = document.getElementById('goldPrices');
+      if (!gold) return;
+
+      let goldCards = [];
+
+      if (gold.international) {
+        goldCards = goldCards.concat(gold.international.map(item => createGoldCard(item, '国际市场')));
+      }
+
+      if (gold.china) {
+        goldCards = goldCards.concat(gold.china.map(item => createGoldCard(item, '中国市场')));
+      }
+
+      container.innerHTML = goldCards.join('');
+    }
+
+    function createGoldCard(item, market) {
+      const changeClass = item.changePercent >= 0 ? 'positive' : 'negative';
+      const changeIcon = item.changePercent >= 0 ? '▲' : '▼';
+
+      // 转换价格
+      const priceObj = convertCurrency(item.price, item.currency || 'USD', currentCurrency);
+      const changeObj = convertCurrency(item.change, item.currency || 'USD', currentCurrency);
+      const displayCurrency = currentCurrency === 'original' ? (item.currency || 'USD') : currentCurrency;
+
+      return `
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">${item.name}</div>
+              <div class="card-subtitle">${market}</div>
+            </div>
+            <span class="change ${changeClass}">
+              ${changeIcon} ${Math.abs(item.changePercent).toFixed(2)}%
+            </span>
+          </div>
+          <div class="price">${formatCurrency(priceObj.amount, displayCurrency)}</div>
+          <div class="change ${changeClass}">
+            ${changeIcon} ${changeObj.amount >= 0 ? '+' : ''}${changeObj.amount.toFixed(2)} ${currencySymbols[displayCurrency]}
+          </div>
+        </div>
+      `;
+    }
+
+    function updateNews(news) {
+      const container = document.getElementById('newsList');
+      if (!news || news.length === 0) {
+        container.innerHTML = '<div class="loading">暂无资讯</div>';
+        return;
+      }
+
+      container.innerHTML = news.slice(0, 10).map(item => {
+        const date = new Date(item.pubDate);
+        const dateStr = date.toLocaleDateString('zh-CN') + ' ' + date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+        const langClass = item.language === 'chinese' ? 'chinese' : '';
+
+        return `
+          <div class="news-card">
+            <div class="news-header">
+              <span class="news-source ${langClass}">${item.source}</span>
+              <span class="news-date">${dateStr}</span>
+            </div>
+            <a href="${item.link}" target="_blank" class="news-title">${item.title}</a>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function updateStats(stocks) {
+      if (!stocks) return;
+
+      let chinaUp = 0, chinaDown = 0, usaUp = 0, usaDown = 0;
+
+      if (stocks.china) {
+        Object.values(stocks.china).forEach(stock => {
+          if (stock.changePercent >= 0) chinaUp++;
+          else chinaDown++;
+        });
+      }
+
+      if (stocks.usa) {
+        Object.values(stocks.usa).forEach(stock => {
+          if (stock.changePercent >= 0) usaUp++;
+          else usaDown++;
+        });
+      }
+
+      const chinaUpEl = document.getElementById('chinaUp');
+      const chinaDownEl = document.getElementById('chinaDown');
+      const usaUpEl = document.getElementById('usaUp');
+      const usaDownEl = document.getElementById('usaDown');
+
+      chinaUpEl.textContent = chinaUp;
+      chinaDownEl.textContent = chinaDown;
+      usaUpEl.textContent = usaUp;
+      usaDownEl.textContent = usaDown;
+
+      chinaUpEl.className = 'stat-value ' + (chinaUp > 0 ? 'stat-up' : chinaDown > 0 ? 'stat-down' : '');
+      usaUpEl.className = 'stat-value ' + (usaUp > 0 ? 'stat-up' : usaDown > 0 ? 'stat-down' : '');
+    }
+
+    async function refreshAll() {
+      document.getElementById('chinaStocks').innerHTML = '<div class="loading"><div class="spinner"></div>加载中...</div>';
+      document.getElementById('usaStocks').innerHTML = '<div class="loading"><div class="spinner"></div>加载中...</div>';
+      document.getElementById('goldPrices').innerHTML = '<div class="loading"><div class="spinner"></div>加载中...</div>';
+      document.getElementById('newsList').innerHTML = '<div class="loading"><div class="spinner"></div>加载中...</div>';
+      await fetchData();
+    }
+
+    // Auto refresh every 5 minutes
+    function startAutoRefresh() {
+      autoRefreshInterval = setInterval(fetchData, 5 * 60 * 1000);
+    }
+
+    // Initial load
+    fetchExchangeRates();
+    fetchData();
+    fetchAnalysis();
+    startAutoRefresh();
+  </script>
+</body>
+</html>
