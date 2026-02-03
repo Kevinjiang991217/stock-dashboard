@@ -178,41 +178,45 @@ async function fetchGoldData() {
   // Try Alpha Vantage for XAU/USD rate
   const xauRate = await alphaVantage.preciousMetals();
 
-  if (xauRate) {
-    // Convert per ounce to per kg (1 kg = 32.1507 oz)
-    const pricePerOz = xauRate;
-    const pricePerKg = pricePerOz * 32.1507;
-
+  if (xauRate && xauRate > 1000) {
+    // Price is per ounce, show as is
     return {
       international: [{
         name: '现货黄金',
-        price: pricePerKg,
+        price: xauRate,
         change: (Math.random() - 0.5) * 20,
         changePercent: (Math.random() - 0.5) * 1,
         currency: 'USD',
         timestamp: Date.now()
       }],
-      china: []
+      china: [{
+        name: '上海金',
+        price: xauRate * exchangeRate, // Convert to CNY
+        change: (Math.random() - 0.5) * 100,
+        changePercent: (Math.random() - 0.5) * 1,
+        currency: 'CNY',
+        timestamp: Date.now()
+      }]
     };
   }
 
-  // Mock data (per kg)
-  const basePricePerKg = 2050 * 31.1035; // ~63,700 CNY per kg
+  // Mock data (per ounce - realistic prices)
+  const basePricePerOz = 2050; // ~2050 USD/oz
 
   return {
     international: [{
       name: '现货黄金',
-      price: 64000 + (Math.random() - 0.5) * 1000,
-      change: (Math.random() - 0.5) * 500,
+      price: basePricePerOz + (Math.random() - 0.5) * 50,
+      change: (Math.random() - 0.5) * 20,
       changePercent: (Math.random() - 0.5) * 1,
       currency: 'USD',
       timestamp: Date.now()
     }],
     china: [{
       name: '上海金',
-      price: 450000 + (Math.random() - 0.5) * 5000,
-      change: (Math.random() - 0.5) * 1000,
-      changePercent: (Math.random() - 0.5) * 0.5,
+      price: (basePricePerOz * exchangeRate) + (Math.random() - 0.5) * 200,
+      change: (Math.random() - 0.5) * 100,
+      changePercent: (Math.random() - 0.5) * 1,
       currency: 'CNY',
       timestamp: Date.now()
     }]

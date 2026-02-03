@@ -498,7 +498,7 @@
 
     <!-- Gold Section -->
     <section class="section">
-      <h2 class="section-title">黄金价格 (每公斤)</h2>
+      <h2 class="section-title">黄金价格 (每盎司)</h2>
       <div class="grid gold-grid" id="goldPrices">
         <div class="loading">
           <div class="spinner"></div>
@@ -782,13 +782,9 @@
       const changeClass = item.changePercent >= 0 ? 'positive' : 'negative';
       const changeIcon = item.changePercent >= 0 ? '▲' : '▼';
 
-      // 转换为每公斤 (1盎司 = 31.1035克)
-      const pricePerKg = item.price * OZ_TO_KG;
-      const changePerKg = item.change * OZ_TO_KG;
-
       // 转换
-      const priceObj = convertCurrency(pricePerKg, item.currency || 'USD', currentCurrency);
-      const changeObj = convertCurrency(changePerKg, item.currency || 'USD', currentCurrency);
+      const priceObj = convertCurrency(item.price, item.currency || 'USD', currentCurrency);
+      const changeObj = convertCurrency(item.change, item.currency || 'USD', currentCurrency);
       const displayCurrency = currentCurrency === 'original' ? (item.currency || 'USD') : currentCurrency;
 
       return `
@@ -796,7 +792,7 @@
           <div class="card-header">
             <div>
               <div class="card-title">${item.name}</div>
-              <div class="card-subtitle">${market} (每公斤)</div>
+              <div class="card-subtitle">${market} (每盎司)</div>
             </div>
             <span class="change ${changeClass}">
               ${changeIcon} ${Math.abs(item.changePercent).toFixed(2)}%
