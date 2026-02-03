@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>全球股市监控 Dashboard</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
   <style>
     * {
       margin: 0;
@@ -520,9 +520,7 @@
             <button class="chart-tab" onclick="switchChart('shanghai')" data-symbol="shanghai">上证指数</button>
           </div>
         </div>
-        <div class="chart-wrapper">
-          <canvas id="klineChart"></canvas>
-        </div>
+        <div class="chart-wrapper" id="chartContainer"></div>
       </div>
     </section>
 
@@ -813,74 +811,43 @@
     }
 
     // Chart functions
-    async function fetchChartData(symbol) {
-      try {
-        const response = await fetch(`/api/history/${symbol}`);
-        const data = await response.json();
-        return data;
-      } catch (error) {
-        console.error('Error fetching chart data:', error);
-        return null;
-      }
-    }
+    let chart = null;
+    let candleSeries = null;
 
     function initChart() {
-      const ctx = document.getElementById('klineChart').getContext('2d');
-      klineChart = new Chart(ctx, {
-        type: 'candlestick',
-        data: {
-          datasets: [{
-            label: '价格',
-            data: [],
-            borderColor: '#4facfe',
-            backgroundColor: {
-              up: 'rgba(46, 213, 115, 0.5)',
-              down: 'rgba(255, 71, 87, 0.5)',
-              unchanged: 'rgba(255, 255, 255, 0.3)'
-            },
-            borderWidth: 1
-          }]
+      const container = document.getElementById('chartContainer');
+
+      chart = LightweightCharts.createChart(container, {
+        layout: {
+          background: { type: 'solid', color: 'transparent' },
+          textColor: 'rgba(255, 255, 255, 0.7)',
         },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          scales: {
-            x: {
-              type: 'time',
-              time: {
-                unit: 'day'
-              },
-              grid: {
-                color: 'rgba(255, 255, 255, 0.1)'
-              },
-              ticks: {
-                color: 'rgba(255, 255, 255, 0.7)'
-              }
-            },
-            y: {
-              grid: {
-                color: 'rgba(255, 255, 255, 0.1)'
-              },
-              ticks: {
-                color: 'rgba(255, 255, 255, 0.7)'
-              }
-            }
-          },
-          plugins: {
-            legend: {
-              display: false
-            },
-            tooltip: {
-              mode: 'index',
-              intersect: false,
-              backgroundColor: 'rgba(0, 0, 0, 0.8)',
-              titleColor: '#fff',
-              bodyColor: '#fff',
-              borderColor: 'rgba(255, 255, 255, 0.2)',
-              borderWidth: 1
-            }
-          }
-        }
+        grid: {
+          vertLines: { color: 'rgba(255, 255, 255, 0.1)' },
+          horzLines: { color: 'rgba(255, 255, 255, 0.1)' },
+        },
+        width: container.clientWidth,
+        height: 280,
+        timeScale: {
+          timeVisible: true,
+          secondsVisible: false,
+        },
+      });
+
+      candleSeries = chart.addCandlestickSeries({
+        upColor: '#2ed573',
+        downColor: '#ff4757',
+        borderDownColor: '#ff4757',
+        borderUpColor: '#2ed573',
+        wickDownColor: '#ff4757',
+        wickUpColor: '#2ed573',
+      });
+
+      // Handle resize
+      window.addEventListener('resize', () => {
+        chart.applyOptions({
+          width: container.clientWidth,
+        });
       });
     }
 
@@ -897,24 +864,20 @@
       const data = await fetchChartData(config.symbol);
       if (data && data.candles) {
         const candles = data.candles.map(c => ({
-          x: new Date(c.time * 1000),
-          o: c.open,
-          h: c.high,
-          l: c.low,
-          c: c.close
+          time: c.time,
+          open: c.open,
+          high: c.high,
+          low: c.low,
+          close: c.close
         }));
-
-        klineChart.data.datasets[0].data = candles;
-        klineChart.data.datasets[0].borderColor = config.color;
-        klineChart.update();
+        candleSeries.setData(candles);
+        chart.timeScale().fitContent();
       }
     }
 
     function switchChart(symbol) {
       loadChart(symbol);
     }
-
-    // Fetch history data endpoint is handled by server
 
     function updateNews(news) {
       const container = document.getElementById('newsList');
