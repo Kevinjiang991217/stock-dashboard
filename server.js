@@ -9,6 +9,10 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const parser = new RSSParser();
 
+// Configuration
+const ALPHA_VANTAGE_KEY = process.env.ALPHA_VANTAGE_KEY || 'demo';
+const FRANKFURTER_BASE = 'https://api.frankfurter.app';
+
 // OpenAI Configuration
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY || 'sk-cp-FD9XasB7QRV9-2XJTtevADR_tqfCSKpmxbnLvS-ebA7r2pHmMQNRloM2j8t5ePclfLaXxQb-LXihqw-dJdYJcI5XJ1BfctLtH9RUZcc1H6hcaa5AwzBdUrE'
@@ -25,20 +29,17 @@ const STOCKS = {
     '深证成指': '399001.SZ'
   },
   usa: {
-    '标普500': '^GSPC',
-    '道琼斯': '^DJI',
-    '纳斯达克': '^IXIC'
+    '标普500': 'SPX',
+    '道琼斯': 'DJI',
+    '纳斯达克': 'IXIC'
   }
 };
 
-// Gold price configuration
+// Gold price configuration - Alpha Vantage uses precious metals API
 const GOLD = {
   international: {
-    '黄金期货': 'GC=F',
-    '现货黄金': 'XAUUSD=X'
-  },
-  china: {
-    '上海金': 'SGEAU9999.XCFE'
+    '黄金期货': 'GOLD',
+    '现货黄金': 'XAU'
   }
 };
 
@@ -50,59 +51,116 @@ let cachedAnalysis = '';
 let exchangeRate = 7.2;
 let lastUpdate = null;
 
-// Fetch exchange rate
+// Fetch exchange rate from Frankfurter (free, no auth)
 async function fetchExchangeRate() {
   try {
-    const response = await axios.get('https://api.exchangerate-api.com/v4/latest/USD');
+    const response = await axios.get(`${FRANKFURTER_BASE}/latest?from=USD&to=CNY`);
     if (response.data && response.data.rates && response.data.rates.CNY) {
       exchangeRate = response.data.rates.CNY;
+      console.log(`Frankfurter汇率: 1 USD = ${exchangeRate} CNY`);
     }
   } catch (error) {
-    console.log('汇率获取失败');
+    console.error('Frankfurter汇率获取失败:', error.message);
   }
 }
 
-// Fetch stock data - using mock data with some variation
-async function fetchStockData(symbol) {
-  try {
-    const response = await axios.get(
-      `https://finnhub.io/api/v1/quote?symbol=${symbol}&token=demo`
-    );
-
-    if (response.data && response.data.c) {
-      const currentPrice = response.data.c;
-      const previousClose = response.data.pc;
-      const change = currentPrice - previousClose;
-      const changePercent = (change / previousClose) * 100;
-
-      return {
-        symbol: symbol,
-        name: symbol,
-        price: currentPrice,
-        change: change,
-        changePercent: changePercent,
-        currency: 'USD',
-        previousClose: previousClose,
-        open: response.data.o,
-        high: response.data.h,
-        low: response.data.l,
-        timestamp: Date.now()
-      };
+// Alpha Vantage API helpers
+const alphaVantage = {
+  async quote(symbol) {
+    try {
+      // Try Alpha Vantage first
+      const response = await axios.get(
+        `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=${ALPHA_VANTAGE_KEY}`
+      );
+      const data = response.data;
+      if (data['Global Quote'] && data['Global Quote']['05. price']) {
+        const quote = data['Global Quote'];
+        return {
+          price: parseFloat(quote['05. price']),
+          change: parseFloat(quote['09. change']),
+          changePercent: parseFloat(quote['10. change percent'].replace('%', '')),
+          open: parseFloat(quote['02. open']),
+          high: parseFloat(quote['03. high']),
+          low: parseFloat(quote['04. low']),
+          previousClose: parseFloat(quote['08. previous close'])
+        };
+      }
+    } catch (error) {
+      console.error(`Alpha Vantage error for ${symbol}:`, error.message);
     }
-  } catch (error) {
-    console.error(`Error fetching ${symbol}:`, error.message);
+    return null;
+  },
+
+  async timeSeriesDaily(symbol) {
+    try {
+      const response = await axios.get(
+        `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${symbol}&apikey=${ALPHA_VANTAGE_KEY}`
+      );
+      const data = response.data;
+      if (data['Time Series (Daily)']) {
+        const timeSeries = data['Time Series (Daily)'];
+        return Object.entries(timeSeries).slice(0, 90).map(([date, values]) => ({
+          time: new Date(date).getTime() / 1000,
+          open: parseFloat(values['1. open']),
+          high: parseFloat(values['2. high']),
+          low: parseFloat(values['3. low']),
+          close: parseFloat(values['4. close'])
+        }));
+      }
+    } catch (error) {
+      console.error(`Alpha Vantage history error for ${symbol}:`, error.message);
+    }
+    return null;
+  },
+
+  async preciousMetals() {
+    try {
+      const response = await axios.get(
+        `https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency=USD&to_currency=XAU&apikey=${ALPHA_VANTAGE_KEY}`
+      );
+      const data = response.data;
+      if (data['Realtime Currency Exchange Rate']) {
+        const rate = data['Realtime Currency Exchange Rate'];
+        return parseFloat(rate['5. Exchange Rate']);
+      }
+    } catch (error) {
+      console.error('Alpha Vantage gold error:', error.message);
+    }
+    return null;
+  }
+};
+
+// Fetch stock data
+async function fetchStockData(symbol, name) {
+  // Try Alpha Vantage
+  const quote = await alphaVantage.quote(symbol);
+
+  if (quote) {
+    return {
+      symbol: symbol,
+      name: name,
+      price: quote.price,
+      change: quote.change,
+      changePercent: quote.changePercent,
+      currency: 'USD',
+      previousClose: quote.previousClose,
+      open: quote.open,
+      high: quote.high,
+      low: quote.low,
+      timestamp: Date.now()
+    };
   }
 
   // Return mock data
-  const basePrice = symbol.includes('000001') ? 3200 :
-                   symbol.includes('399001') ? 10000 :
-                   symbol === '^GSPC' ? 5000 :
-                   symbol === '^DJI' ? 38000 :
-                   symbol === '^IXIC' ? 15000 : 3000;
+  const basePrice = symbol === 'SPX' ? 5000 :
+                   symbol === 'DJI' ? 38000 :
+                   symbol === 'IXIC' ? 15000 :
+                   symbol === '000001.SS' ? 3200 :
+                   symbol === '399001.SZ' ? 10000 : 3000;
 
   return {
     symbol: symbol,
-    name: symbol,
+    name: name,
     price: basePrice + (Math.random() - 0.5) * 100,
     change: (Math.random() - 0.5) * 50,
     changePercent: (Math.random() - 0.5) * 2,
@@ -115,53 +173,49 @@ async function fetchStockData(symbol) {
   };
 }
 
-// Fetch gold prices
-async function fetchGoldPrice(symbol) {
-  try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=10d`;
-    const response = await axios.get(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
-      },
-      timeout: 15000
-    });
+// Fetch gold price
+async function fetchGoldData() {
+  // Try Alpha Vantage for XAU/USD rate
+  const xauRate = await alphaVantage.preciousMetals();
 
-    const data = response.data;
-    if (data.chart && data.chart.result && data.chart.result[0]) {
-      const result = data.chart.result[0];
-      const quote = result.indicators.quote[0];
-      const meta = result.meta;
+  if (xauRate) {
+    // Convert per ounce to per kg (1 kg = 32.1507 oz)
+    const pricePerOz = xauRate;
+    const pricePerKg = pricePerOz * 32.1507;
 
-      const closes = quote.close.filter(c => c !== null);
-      if (closes.length < 2) return null;
-
-      const currentPrice = closes[closes.length - 1];
-      const previousPrice = closes[closes.length - 2];
-      const change = currentPrice - previousPrice;
-      const changePercent = (change / previousPrice) * 100;
-
-      return {
-        symbol: symbol,
-        price: currentPrice,
-        change: change,
-        changePercent: changePercent,
-        currency: meta.currency || 'USD',
-        timestamp: meta.regularMarketTime ? meta.regularMarketTime * 1000 : Date.now()
-      };
-    }
-  } catch (error) {
-    console.error(`Error fetching gold ${symbol}:`, error.message);
+    return {
+      international: [{
+        name: '现货黄金',
+        price: pricePerKg,
+        change: (Math.random() - 0.5) * 20,
+        changePercent: (Math.random() - 0.5) * 1,
+        currency: 'USD',
+        timestamp: Date.now()
+      }],
+      china: []
+    };
   }
 
-  // Return mock data
-  const basePrice = symbol === 'GC=F' ? 2050 : symbol === 'XAUUSD=X' ? 2045 : 450;
+  // Mock data (per kg)
+  const basePricePerKg = 2050 * 31.1035; // ~63,700 CNY per kg
+
   return {
-    symbol: symbol,
-    price: basePrice + (Math.random() - 0.5) * 30,
-    change: (Math.random() - 0.5) * 20,
-    changePercent: (Math.random() - 0.5) * 1,
-    currency: 'USD',
-    timestamp: Date.now()
+    international: [{
+      name: '现货黄金',
+      price: 64000 + (Math.random() - 0.5) * 1000,
+      change: (Math.random() - 0.5) * 500,
+      changePercent: (Math.random() - 0.5) * 1,
+      currency: 'USD',
+      timestamp: Date.now()
+    }],
+    china: [{
+      name: '上海金',
+      price: 450000 + (Math.random() - 0.5) * 5000,
+      change: (Math.random() - 0.5) * 1000,
+      changePercent: (Math.random() - 0.5) * 0.5,
+      currency: 'CNY',
+      timestamp: Date.now()
+    }]
   };
 }
 
@@ -170,37 +224,16 @@ async function fetchAllStocks() {
   const allStocks = { china: {}, usa: {} };
 
   for (const [name, symbol] of Object.entries(STOCKS.china)) {
-    const data = await fetchStockData(symbol);
-    data.name = name;
+    const data = await fetchStockData(symbol, name);
     allStocks.china[name] = data;
   }
 
   for (const [name, symbol] of Object.entries(STOCKS.usa)) {
-    const data = await fetchStockData(symbol);
-    data.name = name;
+    const data = await fetchStockData(symbol, name);
     allStocks.usa[name] = data;
   }
 
   return allStocks;
-}
-
-// Fetch all gold prices
-async function fetchAllGold() {
-  const goldData = { international: [], china: [] };
-
-  for (const [name, symbol] of Object.entries(GOLD.international)) {
-    const data = await fetchGoldPrice(symbol);
-    data.name = name;
-    goldData.international.push(data);
-  }
-
-  for (const [name, symbol] of Object.entries(GOLD.china)) {
-    const data = await fetchGoldPrice(symbol);
-    data.name = name;
-    goldData.china.push(data);
-  }
-
-  return goldData;
 }
 
 // RSS Feed URLs
@@ -245,11 +278,9 @@ async function generateMarketAnalysis(stocks, gold, news) {
       ).join('\n');
     }).join('\n\n');
 
-    const goldSummary = Object.entries(gold).map(([region, data]) => {
-      return `${region}:\n` + data.map(item =>
-        `${item.name}: ${item.price.toFixed(2)} USD`
-      ).join('\n');
-    }).join('\n');
+    const goldSummary = gold.international.map(item =>
+      `${item.name}: ${(item.price / 31.1035).toFixed(2)} USD/盎司 (${item.price.toFixed(0)} CNY/公斤)`
+    ).join('\n');
 
     const recentNews = news.slice(0, 3).map(n => `- ${n.title}`).join('\n');
 
@@ -295,7 +326,7 @@ app.get('/api/stocks', async (req, res) => {
 
 app.get('/api/gold', async (req, res) => {
   try {
-    const gold = await fetchAllGold();
+    const gold = await fetchGoldData();
     res.json(gold);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -322,53 +353,44 @@ app.get('/api/analysis', async (req, res) => {
 });
 
 app.get('/api/exchange-rate', (req, res) => {
-  res.json({ rate: exchangeRate, timestamp: Date.now() });
+  res.json({ rate: exchangeRate, source: 'Frankfurter', timestamp: Date.now() });
 });
 
 // History data for K-line chart
 app.get('/api/history/:symbol', async (req, res) => {
   const symbol = req.params.symbol;
+  const symbolMap = {
+    'sp500': 'SPX',
+    'nasdaq': 'IXIC',
+    'gold': 'XAUUSD',
+    'shanghai': '000001.SS'
+  };
 
-  try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=3mo`;
-    const response = await axios.get(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
-      },
-      timeout: 15000
+  const avSymbol = symbolMap[symbol] || symbol;
+
+  // Try Alpha Vantage
+  const candles = await alphaVantage.timeSeriesDaily(avSymbol);
+
+  if (candles && candles.length > 0) {
+    res.json({ source: 'Alpha Vantage', candles });
+  } else {
+    // Return mock data
+    res.json({
+      source: 'Mock',
+      candles: generateMockCandles(symbol)
     });
-
-    const data = response.data;
-    if (data.chart && data.chart.result && data.chart.result[0]) {
-      const result = data.chart.result[0];
-      const quote = result.indicators.quote[0];
-      const timestamps = result.timestamp;
-
-      const candles = timestamps.map((t, i) => ({
-        time: t,
-        open: quote.open[i],
-        high: quote.high[i],
-        low: quote.low[i],
-        close: quote.close[i]
-      })).filter(c => c.open !== null && c.high !== null && c.low !== null && c.close !== null);
-
-      res.json({ candles });
-    } else {
-      // Return mock data
-      res.json({ candles: generateMockCandles() });
-    }
-  } catch (error) {
-    console.error('Error fetching history:', error.message);
-    // Return mock data on error
-    res.json({ candles: generateMockCandles() });
   }
 });
 
-// Generate mock candles for demo
-function generateMockCandles() {
+// Generate mock candles
+function generateMockCandles(type) {
   const candles = [];
-  const basePrice = 5000;
   const now = Math.floor(Date.now() / 1000);
+
+  const basePrice = type === 'gold' ? 2000 :
+                    type === 'sp500' ? 5000 :
+                    type === 'nasdaq' ? 15000 :
+                    type === 'shanghai' ? 3200 : 3000;
 
   for (let i = 90; i >= 0; i--) {
     const open = basePrice + (Math.random() - 0.5) * 200 + (90 - i) * 5;
@@ -393,11 +415,10 @@ app.get('/api/all', async (req, res) => {
   try {
     const [stocks, gold, news] = await Promise.all([
       fetchAllStocks(),
-      fetchAllGold(),
+      fetchGoldData(),
       fetchNews()
     ]);
 
-    // Generate analysis on-demand
     const analysis = await generateMarketAnalysis(stocks, gold, news);
 
     res.json({ stocks, gold, news, analysis, exchangeRate });
@@ -410,11 +431,10 @@ app.get('/api/all', async (req, res) => {
 async function startServer() {
   await fetchExchangeRate();
 
-  // Fetch initial data
   try {
     [cachedStockData, cachedGoldData, cachedNews] = await Promise.all([
       fetchAllStocks(),
-      fetchAllGold(),
+      fetchGoldData(),
       fetchNews()
     ]);
     cachedAnalysis = await generateMarketAnalysis(cachedStockData, cachedGoldData, cachedNews);
@@ -422,9 +442,6 @@ async function startServer() {
   } catch (error) {
     console.error('Error initializing data:', error.message);
   }
-
-  // Vercel serverless doesn't support app.listen
-  // Export for Vercel
 }
 
 startServer();
@@ -433,6 +450,8 @@ startServer();
 if (process.env.NODE_ENV !== 'production') {
   app.listen(PORT, () => {
     console.log(`Server running at http://localhost:${PORT}`);
+    console.log(`Exchange rate source: Frankfurter`);
+    console.log(`Stock data source: Alpha Vantage (demo key)`);
   });
 }
 
