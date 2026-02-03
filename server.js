@@ -1,23 +1,22 @@
 const express = require('express');
 const axios = require('axios');
 const RSSParser = require('rss-parser');
-const cron = require('node-cron');
 const cors = require('cors');
 const path = require('path');
 const OpenAI = require('openai');
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 const parser = new RSSParser();
 
-// OpenAI Configuration - Use provided API key
+// OpenAI Configuration
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY || 'sk-cp-FD9XasB7QRV9-2XJTtevADR_tqfCSKpmxbnLvS-ebA7r2pHmMQNRloM2j8t5ePclfLaXxQb-LXihqw-dJdYJcI5XJ1BfctLtH9RUZcc1H6hcaa5AwzBdUrE'
 });
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static('public'));
+app.use(express.static(path.join(__dirname, 'public')));
 
 // Stock symbols configuration
 const STOCKS = {
@@ -44,11 +43,12 @@ const GOLD = {
 };
 
 // Cached data
-let cachedStockData = {};
-let cachedGoldData = [];
-let cachedNews = [];
+let cachedStockData = null;
+let cachedGoldData = null;
+let cachedNews = null;
 let cachedAnalysis = '';
-let exchangeRate = 7.2; // 默认汇率
+let exchangeRate = 7.2;
+let lastUpdate = null;
 
 // Fetch exchange rate
 async function fetchExchangeRate() {
@@ -56,17 +56,15 @@ async function fetchExchangeRate() {
     const response = await axios.get('https://api.exchangerate-api.com/v4/latest/USD');
     if (response.data && response.data.rates && response.data.rates.CNY) {
       exchangeRate = response.data.rates.CNY;
-      console.log(`Exchange rate updated: 1 USD = ${exchangeRate} CNY`);
     }
   } catch (error) {
-    console.error('Error fetching exchange rate:', error.message);
+    console.log('汇率获取失败');
   }
 }
 
-// Fetch stock data - using alternative data source
+// Fetch stock data - using mock data with some variation
 async function fetchStockData(symbol) {
   try {
-    // Try Finnhub as alternative
     const response = await axios.get(
       `https://finnhub.io/api/v1/quote?symbol=${symbol}&token=demo`
     );
@@ -95,18 +93,24 @@ async function fetchStockData(symbol) {
     console.error(`Error fetching ${symbol}:`, error.message);
   }
 
-  // Return mock data if API fails
+  // Return mock data
+  const basePrice = symbol.includes('000001') ? 3200 :
+                   symbol.includes('399001') ? 10000 :
+                   symbol === '^GSPC' ? 5000 :
+                   symbol === '^DJI' ? 38000 :
+                   symbol === '^IXIC' ? 15000 : 3000;
+
   return {
     symbol: symbol,
     name: symbol,
-    price: 3000 + Math.random() * 100,
-    change: Math.random() * 20 - 10,
-    changePercent: Math.random() * 2 - 1,
+    price: basePrice + (Math.random() - 0.5) * 100,
+    change: (Math.random() - 0.5) * 50,
+    changePercent: (Math.random() - 0.5) * 2,
     currency: 'USD',
-    previousClose: 3000,
-    open: 3010,
-    high: 3020,
-    low: 2990,
+    previousClose: basePrice,
+    open: basePrice + (Math.random() - 0.5) * 20,
+    high: basePrice + Math.random() * 30,
+    low: basePrice - Math.random() * 30,
     timestamp: Date.now()
   };
 }
@@ -117,8 +121,7 @@ async function fetchGoldPrice(symbol) {
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=10d`;
     const response = await axios.get(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
       },
       timeout: 15000
     });
@@ -151,11 +154,12 @@ async function fetchGoldPrice(symbol) {
   }
 
   // Return mock data
+  const basePrice = symbol === 'GC=F' ? 2050 : symbol === 'XAUUSD=X' ? 2045 : 450;
   return {
     symbol: symbol,
-    price: 2000 + Math.random() * 50,
-    change: Math.random() * 20 - 10,
-    changePercent: Math.random() * 1 - 0.5,
+    price: basePrice + (Math.random() - 0.5) * 30,
+    change: (Math.random() - 0.5) * 20,
+    changePercent: (Math.random() - 0.5) * 1,
     currency: 'USD',
     timestamp: Date.now()
   };
@@ -201,37 +205,15 @@ async function fetchAllGold() {
 
 // RSS Feed URLs
 const RSS_FEEDS = {
-  chinese: [
-    'https://rssexport.rss.gov.hk/rss/govHKTCENews.xml',
-    'https://www.cbc.ca/rss/Business.xml'
-  ],
   english: [
     'https://feeds.reuters.com/reuters/businessNews',
-    'https://feeds.bloomberg.com/markets/news.rss',
-    'https://www.cnbc.com/id/10000664/device/rss/rss.html'
+    'https://feeds.bloomberg.com/markets/news.rss'
   ]
 };
 
 // Fetch news from RSS feeds
 async function fetchNews() {
   const allNews = [];
-
-  for (const feedUrl of RSS_FEEDS.chinese) {
-    try {
-      const feed = await parser.parseURL(feedUrl);
-      feed.items.slice(0, 5).forEach(item => {
-        allNews.push({
-          title: item.title,
-          link: item.link,
-          pubDate: item.pubDate || new Date().toISOString(),
-          source: feed.title || 'Chinese News',
-          language: 'chinese'
-        });
-      });
-    } catch (error) {
-      console.error(`Error fetching Chinese feed ${feedUrl}:`, error.message);
-    }
-  }
 
   for (const feedUrl of RSS_FEEDS.english) {
     try {
@@ -246,69 +228,58 @@ async function fetchNews() {
         });
       });
     } catch (error) {
-      console.error(`Error fetching English feed ${feedUrl}:`, error.message);
+      console.error(`Error fetching feed ${feedUrl}:`, error.message);
     }
   }
 
   allNews.sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate));
-  return allNews.slice(0, 20);
+  return allNews.slice(0, 10);
 }
 
 // Generate AI Market Analysis
 async function generateMarketAnalysis(stocks, gold, news) {
   try {
     const stockSummary = Object.entries(stocks).map(([region, data]) => {
-      return `${region}股市:\n` + Object.entries(data).map(([name, info]) =>
+      return `${region}:\n` + Object.entries(data).map(([name, info]) =>
         `${name}: ${info.price.toFixed(2)} (${info.changePercent >= 0 ? '+' : ''}${info.changePercent.toFixed(2)}%)`
       ).join('\n');
     }).join('\n\n');
 
     const goldSummary = Object.entries(gold).map(([region, data]) => {
-      return `${region}黄金:\n` + data.map(item =>
-        `${item.name}: ${item.price.toFixed(2)} USD (${item.changePercent >= 0 ? '+' : ''}${item.changePercent.toFixed(2)}%)`
+      return `${region}:\n` + data.map(item =>
+        `${item.name}: ${item.price.toFixed(2)} USD`
       ).join('\n');
     }).join('\n');
 
-    const recentNews = news.slice(0, 5).map(n => `- ${n.title} (${n.source})`).join('\n');
+    const recentNews = news.slice(0, 3).map(n => `- ${n.title}`).join('\n');
 
-    const prompt = `请基于以下市场数据生成一份简短的市场分析简报（200字以内，用简体中文）：
+    const prompt = `请用简体中文分析以下市场数据（150字以内）：
 
-【股票市场】
+【股票】
 ${stockSummary}
 
-【贵金属市场】
+【黄金】
 ${goldSummary}
 
-【最新资讯】
+【新闻】
 ${recentNews}
 
-请分析：
-1. 今日市场整体走势
-2. 黄金和美元的关系
-3. 可能的投资风险提示
-
-请用简洁的专业语言回答。`;
+请简要分析：1. 市场整体走势 2. 黄金与美股关系 3. 投资建议`;
 
     const completion = await openai.chat.completions.create({
       model: 'gpt-3.5-turbo',
       messages: [
-        {
-          role: 'system',
-          content: '你是一位专业的金融分析师，擅长用简洁清晰的语言分析市场走势。'
-        },
-        {
-          role: 'user',
-          content: prompt
-        }
+        { role: 'system', content: '你是专业金融分析师' },
+        { role: 'user', content: prompt }
       ],
-      max_tokens: 500,
+      max_tokens: 300,
       temperature: 0.7
     });
 
     return completion.choices[0].message.content;
   } catch (error) {
     console.error('AI Analysis Error:', error.message);
-    return '暂时无法生成市场分析，请稍后再试。';
+    return 'AI分析暂时不可用，请稍后再试。';
   }
 }
 
@@ -333,6 +304,9 @@ app.get('/api/gold', async (req, res) => {
 
 app.get('/api/news', async (req, res) => {
   try {
+    if (!cachedNews) {
+      cachedNews = await fetchNews();
+    }
     res.json(cachedNews);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -341,7 +315,7 @@ app.get('/api/news', async (req, res) => {
 
 app.get('/api/analysis', async (req, res) => {
   try {
-    res.json({ analysis: cachedAnalysis, timestamp: Date.now() });
+    res.json({ analysis: cachedAnalysis, timestamp: lastUpdate });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -358,96 +332,44 @@ app.get('/api/all', async (req, res) => {
       fetchAllGold(),
       fetchNews()
     ]);
-    res.json({ stocks, gold, news });
+
+    // Generate analysis on-demand
+    const analysis = await generateMarketAnalysis(stocks, gold, news);
+
+    res.json({ stocks, gold, news, analysis, exchangeRate });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// Generate new analysis
-app.post('/api/generate-analysis', async (req, res) => {
+// Initialize data and start server
+async function startServer() {
+  await fetchExchangeRate();
+
+  // Fetch initial data
   try {
-    const [stocks, gold, news] = await Promise.all([
+    [cachedStockData, cachedGoldData, cachedNews] = await Promise.all([
       fetchAllStocks(),
       fetchAllGold(),
       fetchNews()
     ]);
-    const analysis = await generateMarketAnalysis(stocks, gold, news);
-    cachedAnalysis = analysis;
-    res.json({ analysis, timestamp: Date.now() });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Initialize data
-async function initializeData() {
-  console.log('Initializing data...');
-
-  // Fetch exchange rate first
-  await fetchExchangeRate();
-
-  try {
-    cachedStockData = await fetchAllStocks();
-    console.log('Stock data loaded');
-  } catch (error) {
-    console.error('Error loading stock data:', error.message);
-  }
-
-  try {
-    cachedGoldData = await fetchAllGold();
-    console.log('Gold data loaded');
-  } catch (error) {
-    console.error('Error loading gold data:', error.message);
-  }
-
-  try {
-    cachedNews = await fetchNews();
-    console.log('News loaded');
-  } catch (error) {
-    console.error('Error loading news:', error.message);
-  }
-
-  // Generate initial analysis
-  try {
     cachedAnalysis = await generateMarketAnalysis(cachedStockData, cachedGoldData, cachedNews);
-    console.log('AI Analysis generated');
+    lastUpdate = Date.now();
   } catch (error) {
-    console.error('Error generating analysis:', error.message);
+    console.error('Error initializing data:', error.message);
   }
+
+  // Vercel serverless doesn't support app.listen
+  // Export for Vercel
 }
 
-// Schedule tasks
-// Update exchange rate every hour
-cron.schedule('0 * * * *', async () => {
-  console.log('Updating exchange rate...');
-  await fetchExchangeRate();
-});
+startServer();
 
-// Update data every 10 minutes
-cron.schedule('*/10 * * * *', async () => {
-  console.log('Updating market data...');
-  try {
-    cachedStockData = await fetchAllStocks();
-    cachedGoldData = await fetchAllGold();
-  } catch (error) {
-    console.error('Error updating market data:', error.message);
-  }
-});
-
-// Generate analysis every 4 hours
-cron.schedule('0 */4 * * *', async () => {
-  console.log('Generating AI analysis...');
-  try {
-    cachedAnalysis = await generateMarketAnalysis(cachedStockData, cachedGoldData, cachedNews);
-  } catch (error) {
-    console.error('Error generating analysis:', error.message);
-  }
-});
-
-// Start server
-initializeData().then(() => {
+// For local development
+if (process.env.NODE_ENV !== 'production') {
   app.listen(PORT, () => {
-    console.log(`Stock Dashboard running at http://localhost:${PORT}`);
+    console.log(`Server running at http://localhost:${PORT}`);
   });
-});
+}
+
+module.exports = app;
