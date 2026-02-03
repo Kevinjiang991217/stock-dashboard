@@ -179,44 +179,47 @@ async function fetchGoldData() {
   const xauRate = await alphaVantage.preciousMetals();
 
   if (xauRate && xauRate > 1000) {
-    // Price is per ounce, show as is
+    // Convert per ounce to per gram (1 oz = 31.1035 grams)
+    const pricePerGram = xauRate / 31.1035;
+    const changePerGram = (Math.random() - 0.5) * 0.5;
+
     return {
       international: [{
         name: '现货黄金',
-        price: xauRate,
-        change: (Math.random() - 0.5) * 20,
-        changePercent: (Math.random() - 0.5) * 1,
+        price: pricePerGram,
+        change: changePerGram,
+        changePercent: (changePerGram / pricePerGram) * 100,
         currency: 'USD',
         timestamp: Date.now()
       }],
       china: [{
         name: '上海金',
-        price: xauRate * exchangeRate, // Convert to CNY
-        change: (Math.random() - 0.5) * 100,
-        changePercent: (Math.random() - 0.5) * 1,
+        price: pricePerGram * exchangeRate,
+        change: changePerGram * exchangeRate,
+        changePercent: (changePerGram / pricePerGram) * 100,
         currency: 'CNY',
         timestamp: Date.now()
       }]
     };
   }
 
-  // Mock data (per ounce - realistic prices)
-  const basePricePerOz = 2050; // ~2050 USD/oz
+  // Mock data (per gram - realistic prices)
+  const basePricePerGramUSD = 66; // ~66 USD/g (~$2050/oz)
 
   return {
     international: [{
       name: '现货黄金',
-      price: basePricePerOz + (Math.random() - 0.5) * 50,
-      change: (Math.random() - 0.5) * 20,
-      changePercent: (Math.random() - 0.5) * 1,
+      price: basePricePerGramUSD + (Math.random() - 0.5) * 2,
+      change: (Math.random() - 0.5) * 0.5,
+      changePercent: (Math.random() - 0.5) * 0.8,
       currency: 'USD',
       timestamp: Date.now()
     }],
     china: [{
       name: '上海金',
-      price: (basePricePerOz * exchangeRate) + (Math.random() - 0.5) * 200,
-      change: (Math.random() - 0.5) * 100,
-      changePercent: (Math.random() - 0.5) * 1,
+      price: basePricePerGramUSD * exchangeRate + (Math.random() - 0.5) * 10,
+      change: (Math.random() - 0.5) * 5,
+      changePercent: (Math.random() - 0.5) * 0.8,
       currency: 'CNY',
       timestamp: Date.now()
     }]
